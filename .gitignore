@@ -14,5 +14,6 @@ venv/
 /*
 !/.gitignore
 !/README.md
+!/LICENSE
 !/priority-board-html/
 !/linkedin-image-merge/
