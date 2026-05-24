@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Priority Board</title>
+
+<!-- Board state is injected here by build_board.py (replaces __BOARD_DATA__).
+     It is also rewritten when you click "Save HTML" so the saved file reopens
+     with the current state baked in. type="application/json" => not executed. -->
+<script id="board-data" type="application/json">__BOARD_DATA__</script>
+
+<style>
+  :root{
+    --bg:#f4f5f7; --panel:#ffffff; --ink:#1f2430;
+    --muted:#697586; --line:#e3e6eb; --shadow:0 1px 2px rgba(16,24,40,.06),0 1px 3px rgba(16,24,40,.1);
+    --radius:12px; --card-radius:10px;
+    --now:#e11d48; --next:#2563eb; --later:#64748b; --cut:#94a3b8;
+    --now-bg:#fff1f3; --next-bg:#eff5ff; --later-bg:#f4f6f8; --cut-bg:#f1f3f5;
+    --accent:#4f46e5;
+    --pri-urgent:#e11d48; --pri-high:#ea580c; --pri-medium:#d97706; --pri-low:#0891b2; --pri-none:#94a3b8;
+    --danger:#dc2626; --ok:#16a34a;
+  }
+  html[data-theme="dark"]{
+    --bg:#0f1217; --panel:#171b22; --ink:#e6e9ef; --muted:#9aa4b2; --line:#262c36;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 2px 6px rgba(0,0,0,.35);
+    --now-bg:#2a151b; --next-bg:#14213a; --later-bg:#1b2027; --cut-bg:#1a1e25;
+    --now:#fb7185; --next:#60a5fa; --later:#94a3b8; --cut:#94a3b8;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:var(--bg); color:var(--ink); -webkit-font-smoothing:antialiased;
+    display:flex; flex-direction:column; min-height:100vh;
+  }
+  button{font:inherit; cursor:pointer}
+  /* ---------- Top bar ---------- */
+  header.topbar{
+    position:sticky; top:0; z-index:30; background:var(--panel);
+    border-bottom:1px solid var(--line); box-shadow:var(--shadow);
+  }
+  .topbar-row{display:flex; align-items:center; gap:10px; padding:10px 16px; flex-wrap:wrap}
+  .title-wrap{display:flex; align-items:center; gap:8px; flex:1 1 240px; min-width:200px}
+  #board-title{
+    font-size:18px; font-weight:700; color:var(--ink); border:1px solid transparent;
+    background:transparent; padding:4px 8px; border-radius:8px; min-width:120px; max-width:520px;
+  }
+  #board-title:hover{border-color:var(--line)}
+  #board-title:focus{outline:none; border-color:var(--accent); background:var(--bg)}
+  .count-pill{font-size:12px; color:var(--muted); background:var(--bg); border:1px solid var(--line); padding:3px 8px; border-radius:20px; white-space:nowrap}
+  .toolbar{display:flex; align-items:center; gap:6px; flex-wrap:wrap}
+  .btn{
+    border:1px solid var(--line); background:var(--panel); color:var(--ink);
+    padding:7px 11px; border-radius:8px; font-size:13px; font-weight:500;
+    display:inline-flex; align-items:center; gap:6px; line-height:1; white-space:nowrap;
+  }
+  .btn:hover{border-color:var(--accent); color:var(--accent)}
+  .btn.primary{background:var(--accent); color:#fff; border-color:var(--accent)}
+  .btn.primary:hover{filter:brightness(1.07); color:#fff}
+  .btn.ghost{border-color:transparent; background:transparent}
+  .btn.ghost:hover{background:var(--bg)}
+  .search{position:relative}
+  .search input{
+    border:1px solid var(--line); background:var(--bg); color:var(--ink);
+    padding:7px 10px 7px 30px; border-radius:8px; font-size:13px; width:170px;
+  }
+  .search input:focus{outline:none; border-color:var(--accent)}
+  .search svg{position:absolute; left:9px; top:50%; transform:translateY(-50%); color:var(--muted)}
+  .status-line{font-size:11.5px; color:var(--muted); padding:0 16px 8px; display:flex; gap:12px; align-items:center; flex-wrap:wrap}
+  .dot{width:7px; height:7px; border-radius:50%; background:var(--ok); display:inline-block; margin-right:5px}
+  .banner{display:none; background:#fef3c7; color:#92400e; border-top:1px solid #fcd34d; padding:8px 16px; font-size:12.5px}
+  html[data-theme="dark"] .banner{background:#3a2d10; color:#fcd34d; border-color:#5c4810}
+  .banner.show{display:block}
+  /* ---------- Board ---------- */
+  main.board{
+    flex:1; display:flex; gap:14px; padding:16px; overflow-x:auto; align-items:flex-start;
+  }
+  .lane{
+    flex:1 1 0; min-width:270px; background:var(--panel);
+    border:1px solid var(--line); border-radius:var(--radius); display:flex; flex-direction:column;
+    max-height:calc(100vh - 130px);
+  }
+  .lane.drop-active{outline:2px dashed var(--accent); outline-offset:-3px}
+  .lane-head{
+    display:flex; align-items:center; gap:8px; padding:11px 13px; border-bottom:1px solid var(--line);
+    border-top:3px solid var(--lane-color,var(--line)); border-radius:var(--radius) var(--radius) 0 0;
+    position:sticky; top:0; background:var(--panel); z-index:2;
+  }
+  .lane[data-lane="now"]{--lane-color:var(--now)}
+  .lane[data-lane="next"]{--lane-color:var(--next)}
+  .lane[data-lane="later"]{--lane-color:var(--later)}
+  .lane[data-lane="cut"]{--lane-color:var(--cut)}
+  .lane-name{font-weight:700; font-size:14px; color:var(--lane-color,var(--ink))}
+  .lane-name[contenteditable]{outline:none; border-radius:6px; padding:1px 4px}
+  .lane-name[contenteditable]:focus{background:var(--bg)}
+  .lane-meta{margin-left:auto; font-size:11.5px; color:var(--muted); display:flex; gap:8px; align-items:center}
+  .lane-meta .cnt{background:var(--bg); border:1px solid var(--line); padding:1px 7px; border-radius:20px}
+  .lane-cards{padding:10px; display:flex; flex-direction:column; gap:9px; overflow-y:auto; flex:1; min-height:60px}
+  .lane[data-lane="cut"] .lane-cards .card .card-title{text-decoration:line-through; opacity:.75}
+  /* ---------- Card ---------- */
+  .card{
+    background:var(--panel); border:1px solid var(--line); border-radius:var(--card-radius);
+    padding:9px 10px 10px; box-shadow:var(--shadow); position:relative;
+    border-left:3px solid var(--pri-color,var(--line)); transition:box-shadow .12s,transform .04s;
+  }
+  .card[data-pri="urgent"]{--pri-color:var(--pri-urgent)}
+  .card[data-pri="high"]{--pri-color:var(--pri-high)}
+  .card[data-pri="medium"]{--pri-color:var(--pri-medium)}
+  .card[data-pri="low"]{--pri-color:var(--pri-low)}
+  .card[data-pri="none"]{--pri-color:var(--pri-none)}
+  .card:hover{box-shadow:0 3px 10px rgba(16,24,40,.12)}
+  .card.dim{display:none}
+  .card-top{display:flex; align-items:center; gap:6px; margin-bottom:5px}
+  .grip{
+    cursor:grab; color:var(--muted); font-size:13px; line-height:1; padding:2px 1px; user-select:none;
+    touch-action:none; flex:0 0 auto; border-radius:4px;
+  }
+  .grip:hover{color:var(--ink); background:var(--bg)}
+  .id-badge{font-size:11px; font-weight:600; color:var(--muted); font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .pri-pill{font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; color:#fff; background:var(--pri-color,var(--pri-none)); padding:2px 6px; border-radius:5px}
+  .card-actions{margin-left:auto; display:flex; gap:2px; opacity:0; transition:opacity .12s}
+  .card:hover .card-actions, .card:focus-within .card-actions{opacity:1}
+  .icon-btn{border:none; background:transparent; color:var(--muted); padding:3px; border-radius:5px; line-height:0}
+  .icon-btn:hover{background:var(--bg); color:var(--ink)}
+  .icon-btn.del:hover{color:var(--danger)}
+  .card-title{font-weight:600; font-size:13.5px; word-break:break-word; cursor:pointer}
+  .card-meta{display:flex; flex-wrap:wrap; gap:5px; margin-top:7px}
+  .chip{font-size:11px; color:var(--muted); background:var(--bg); border:1px solid var(--line); padding:2px 7px; border-radius:6px; display:inline-flex; align-items:center; gap:4px}
+  .chip.due.overdue{color:#fff; background:var(--danger); border-color:var(--danger)}
+  .chip.est{font-variant-numeric:tabular-nums}
+  .labels{display:flex; flex-wrap:wrap; gap:4px; margin-top:6px}
+  .label{font-size:10.5px; padding:2px 7px; border-radius:20px; background:var(--later-bg); color:var(--later); border:1px solid var(--line)}
+  .rationale{font-size:11.5px; color:var(--muted); font-style:italic; margin-top:7px; display:flex; gap:5px; align-items:flex-start}
+  .rationale svg{flex:0 0 auto; margin-top:1px}
+  .desc{display:none; margin-top:8px; padding-top:8px; border-top:1px dashed var(--line); font-size:12.5px; color:var(--ink); white-space:pre-wrap; word-break:break-word}
+  .card.expanded .desc{display:block}
+  .card-link{font-size:11.5px; color:var(--accent); text-decoration:none; margin-top:6px; display:inline-block}
+  .card-link:hover{text-decoration:underline}
+  /* ---------- Edit form ---------- */
+  .edit-form{display:flex; flex-direction:column; gap:7px}
+  .edit-form label{font-size:11px; color:var(--muted); font-weight:600; display:flex; flex-direction:column; gap:3px}
+  .edit-form input, .edit-form select, .edit-form textarea{
+    font:inherit; font-size:13px; padding:6px 8px; border:1px solid var(--line); border-radius:7px;
+    background:var(--bg); color:var(--ink); width:100%;
+  }
+  .edit-form textarea{resize:vertical; min-height:54px}
+  .edit-form input:focus, .edit-form select:focus, .edit-form textarea:focus{outline:none; border-color:var(--accent)}
+  .edit-row{display:flex; gap:7px}
+  .edit-row > label{flex:1}
+  .edit-actions{display:flex; gap:6px; justify-content:flex-end; margin-top:2px}
+  /* ---------- Drag visuals ---------- */
+  .drag-ghost{
+    position:fixed; z-index:1000; pointer-events:none; box-shadow:0 12px 30px rgba(16,24,40,.28);
+    transform:rotate(2deg); opacity:.96; cursor:grabbing;
+  }
+  .card.source-hidden{display:none}
+  .drop-placeholder{
+    border:2px dashed var(--accent); border-radius:var(--card-radius); background:color-mix(in srgb,var(--accent) 8%,transparent);
+    min-height:42px;
+  }
+  body.dragging, body.dragging *{cursor:grabbing !important; user-select:none !important}
+  .empty-hint{color:var(--muted); font-size:12px; text-align:center; padding:14px 6px; border:1px dashed var(--line); border-radius:8px}
+  footer.foot{padding:8px 16px; font-size:11px; color:var(--muted); border-top:1px solid var(--line); background:var(--panel)}
+  @media (max-width:640px){
+    .search input{width:120px}
+    .lane{min-width:240px}
+  }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-row">
+    <div class="title-wrap">
+      <span title="Priority board" style="font-size:18px">🗂️</span>
+      <input id="board-title" aria-label="Board title" />
+      <span class="count-pill" id="total-count">0 cards</span>
+    </div>
+    <div class="toolbar">
+      <div class="search">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+        <input id="search" type="search" placeholder="Filter cards…" aria-label="Filter cards" />
+      </div>
+      <button class="btn" id="btn-add">＋ Card</button>
+      <button class="btn primary" id="btn-save-html" title="Download a self-contained HTML with the current board baked in">⬇ Save HTML</button>
+      <button class="btn" id="btn-save-json" title="Download board state as JSON">⬇ JSON</button>
+      <button class="btn" id="btn-load-json" title="Restore board from a saved JSON file">⬆ Load</button>
+      <button class="btn ghost" id="btn-theme" title="Toggle light / dark" aria-label="Toggle theme">🌓</button>
+      <button class="btn ghost" id="btn-reset" title="Discard changes and restore the original pre-sorted board">↺ Reset</button>
+      <input id="file-input" type="file" accept="application/json,.json" style="display:none" />
+    </div>
+  </div>
+  <div class="status-line">
+    <span id="save-status"><span class="dot"></span>Ready</span>
+    <span id="store-mode"></span>
+  </div>
+  <div class="banner" id="storage-banner">
+    ⚠️ This browser is blocking automatic local storage (common when opening a file directly, e.g. Safari).
+    Your edits stay in this tab but won't survive a reload — use <b>Save HTML</b> or <b>JSON</b> to keep them.
+  </div>
+</header>
+
+<main class="board" id="board" aria-label="Priority board"></main>
+
+<footer class="foot">
+  Drag the ⠿ handle to move cards across <b>Now → Next → Later → Cut</b>. Changes auto-save in this browser; use Save HTML / JSON for a durable copy.
+</footer>
+
+<script>
+"use strict";
+(function(){
+  /* ============ State load ============ */
+  var DEFAULT_LANES = [
+    {id:"now",name:"Now"},{id:"next",name:"Next"},
+    {id:"later",name:"Later"},{id:"cut",name:"Cut"}
+  ];
+  var DEMO = {
+    version:1, boardId:"demo", title:"Priority Board", lanes:DEFAULT_LANES,
+    cards:[
+      {id:"DEMO-1",lane:"now",title:"This is a demo card",priority:"High",status:"Todo",estimate:2,labels:["demo"],rationale:"Build with build_board.py to load real data."},
+      {id:"DEMO-2",lane:"next",title:"Drag me with the ⠿ handle",priority:"Medium",status:"Backlog",estimate:3,labels:[]},
+      {id:"DEMO-3",lane:"later",title:"Edit me with the pencil icon",priority:"Low",status:"Backlog",estimate:1,labels:[]},
+      {id:"DEMO-4",lane:"cut",title:"Cut lane = won't do",priority:"None",status:"Canceled",estimate:0,labels:[]}
+    ], updatedAt:new Date().toISOString()
+  };
+  function readEmbedded(){
+    try{
+      var raw=document.getElementById("board-data").textContent.trim();
+      if(!raw || raw==="__BOARD_DATA__") return clone(DEMO);
+      var s=JSON.parse(raw);
+      return normalize(s);
+    }catch(e){ console.warn("Embedded data parse failed, using demo:",e); return clone(DEMO); }
+  }
+  function normalize(s){
+    s=s||{};
+    s.version=s.version||1;
+    s.boardId=s.boardId||("board-"+uid());
+    s.title=s.title||"Priority Board";
+    s.lanes=(Array.isArray(s.lanes)&&s.lanes.length)?s.lanes:clone(DEFAULT_LANES);
+    s.cards=Array.isArray(s.cards)?s.cards:[];
+    var laneIds=s.lanes.map(function(l){return l.id;});
+    // sort by optional `order` within original array, then drop order field usage at runtime
+    s.cards.forEach(function(c,i){
+      if(!c.id) c.id="C-"+(i+1);
+      if(laneIds.indexOf(c.lane)<0) c.lane=laneIds[0];
+      c.labels=toArray(c.labels);
+    });
+    if(s.cards.some(function(c){return typeof c.order==="number";})){
+      var laneRank={}; laneIds.forEach(function(id,i){laneRank[id]=i;});
+      s.cards.sort(function(a,b){
+        if(laneRank[a.lane]!==laneRank[b.lane]) return laneRank[a.lane]-laneRank[b.lane];
+        return (a.order==null?1e9:a.order)-(b.order==null?1e9:b.order);
+      });
+    }
+    return s;
+  }
+  function toArray(v){
+    if(v==null) return [];
+    if(Array.isArray(v)) return v.filter(function(x){return x!=null && String(x).trim()!=="";}).map(String);
+    return String(v).split(/[,;|]/).map(function(s){return s.trim();}).filter(Boolean);
+  }
+  function clone(o){return JSON.parse(JSON.stringify(o));}
+  function uid(){return Math.random().toString(36).slice(2,8)+Date.now().toString(36).slice(-4);}
+
+  var EMBEDDED = readEmbedded();
+  var ORIGINAL = clone(EMBEDDED);              // for Reset
+  var STORAGE_KEY = "priority-board:"+EMBEDDED.boardId;
+  var THEME_KEY = "priority-board-theme";
+  var storageOK = true;
+  var state = loadState();
+
+  function loadState(){
+    try{
+      var saved=localStorage.getItem(STORAGE_KEY);
+      if(saved){ var p=JSON.parse(saved); if(p && Array.isArray(p.cards)) return normalize(p); }
+    }catch(e){ storageOK=false; }
+    return clone(EMBEDDED);
+  }
+
+  /* ============ Persistence ============ */
+  var saveTimer=null;
+  function save(){
+    state.updatedAt=new Date().toISOString();
+    if(saveTimer) clearTimeout(saveTimer);
+    saveTimer=setTimeout(function(){
+      try{
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        setSaveStatus(true);
+      }catch(e){ storageOK=false; setSaveStatus(false); }
+      reflectStorageMode();
+    },250);
+  }
+  function setSaveStatus(ok){
+    var el=document.getElementById("save-status");
+    if(!storageOK){ el.innerHTML='<span class="dot" style="background:#f59e0b"></span>Not auto-saved (use Save HTML/JSON)'; return; }
+    var t=new Date(state.updatedAt).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",second:"2-digit"});
+    el.innerHTML='<span class="dot"></span>Saved · '+t;
+  }
+  function reflectStorageMode(){
+    document.getElementById("storage-banner").classList.toggle("show", !storageOK);
+    document.getElementById("store-mode").textContent = storageOK ? "" : "local storage unavailable";
+  }
+
+  /* ============ Rendering ============ */
+  var board=document.getElementById("board");
+  var titleInput=document.getElementById("board-title");
+  var searchTerm="";
+
+  function cardsInLane(laneId){ return state.cards.filter(function(c){return c.lane===laneId;}); }
+  function priKey(p){
+    var v=(p||"").toString().toLowerCase().replace(/^p?0$/,"urgent");
+    if(/urgent|p0|critical/.test(v)) return "urgent";
+    if(/high|p1/.test(v)) return "high";
+    if(/med|p2|normal/.test(v)) return "medium";
+    if(/low|p3|minor/.test(v)) return "low";
+    return "none";
+  }
+  function priLabel(p){ var k=priKey(p); return ({urgent:"Urgent",high:"High",medium:"Medium",low:"Low",none:p&&String(p).trim()?String(p):"—"})[k]; }
+  function esc(s){ return (s==null?"":String(s)).replace(/[&<>"']/g,function(c){return ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c];}); }
+  function isOverdue(due){
+    if(!due) return false; var d=new Date(due); if(isNaN(d)) return false;
+    var today=new Date(); today.setHours(0,0,0,0); return d<today;
+  }
+  function num(v){ var n=parseFloat(v); return isNaN(n)?0:n; }
+  function matches(c){
+    if(!searchTerm) return true;
+    var hay=[c.id,c.title,c.status,c.assignee,c.description,(c.labels||[]).join(" ")].join(" ").toLowerCase();
+    return hay.indexOf(searchTerm)>=0;
+  }
+
+  function render(){
+    titleInput.value=state.title;
+    document.title=state.title||"Priority Board";
+    board.innerHTML="";
+    var totalShown=0;
+    state.lanes.forEach(function(lane){
+      var laneCards=cardsInLane(lane.id);
+      var sumEst=laneCards.reduce(function(a,c){return a+num(c.estimate);},0);
+      var laneEl=document.createElement("section");
+      laneEl.className="lane"; laneEl.dataset.lane=lane.id;
+      var head=document.createElement("div"); head.className="lane-head";
+      head.innerHTML='<span class="lane-name" contenteditable="true" spellcheck="false" data-lane="'+esc(lane.id)+'">'+esc(lane.name)+'</span>'+
+        '<span class="lane-meta"><span class="cnt">'+laneCards.length+'</span>'+(sumEst?('<span title="Total estimate">Σ '+sumEst+'</span>'):'')+'</span>';
+      laneEl.appendChild(head);
+      var list=document.createElement("div"); list.className="lane-cards"; list.dataset.laneId=lane.id;
+      var anyShown=false;
+      laneCards.forEach(function(c){
+        var el=buildCard(c);
+        if(!matches(c)) el.classList.add("dim"); else {anyShown=true; totalShown++;}
+        list.appendChild(el);
+      });
+      if(laneCards.length===0){
+        var hint=document.createElement("div"); hint.className="empty-hint"; hint.textContent="Drop cards here";
+        list.appendChild(hint);
+      }
+      laneEl.appendChild(list);
+      board.appendChild(laneEl);
+    });
+    document.getElementById("total-count").textContent =
+      (searchTerm? (totalShown+" of "+state.cards.length) : state.cards.length)+" card"+(state.cards.length===1?"":"s");
+    setSaveStatus(true);
+  }
+
+  function buildCard(c){
+    var el=document.createElement("article");
+    el.className="card"; el.dataset.cardId=c.id; el.dataset.pri=priKey(c.priority);
+    var labels=(c.labels||[]).map(function(l){return '<span class="label">'+esc(l)+'</span>';}).join("");
+    var meta=[];
+    if(c.status) meta.push('<span class="chip">'+esc(c.status)+'</span>');
+    if(c.estimate!=null && String(c.estimate).trim()!=="" && num(c.estimate)>0) meta.push('<span class="chip est">'+esc(c.estimate)+' pts</span>');
+    if(c.assignee) meta.push('<span class="chip">👤 '+esc(c.assignee)+'</span>');
+    if(c.due) meta.push('<span class="chip due'+(isOverdue(c.due)&&c.lane!=="cut"?' overdue':'')+'">📅 '+esc(c.due)+'</span>');
+    el.innerHTML=
+      '<div class="card-top">'+
+        '<span class="grip" title="Drag to move">⠿</span>'+
+        '<span class="id-badge">'+esc(c.id)+'</span>'+
+        '<span class="pri-pill">'+esc(priLabel(c.priority))+'</span>'+
+        '<span class="card-actions">'+
+          '<button class="icon-btn edit" title="Edit" aria-label="Edit card">'+ICON.pencil+'</button>'+
+          '<button class="icon-btn del" title="Delete" aria-label="Delete card">'+ICON.trash+'</button>'+
+        '</span>'+
+      '</div>'+
+      '<div class="card-title">'+esc(c.title||"(untitled)")+'</div>'+
+      (meta.length?'<div class="card-meta">'+meta.join("")+'</div>':'')+
+      (labels?'<div class="labels">'+labels+'</div>':'')+
+      (c.rationale?'<div class="rationale">'+ICON.bulb+'<span>'+esc(c.rationale)+'</span></div>':'')+
+      (c.url?'<a class="card-link" href="'+esc(c.url)+'" target="_blank" rel="noopener">Open ↗</a>':'')+
+      (c.description?'<div class="desc">'+esc(c.description)+'</div>':'');
+    return el;
+  }
+
+  var ICON={
+    pencil:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>',
+    trash:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>',
+    bulb:'<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.1V18h6v-1.2c0-.8.4-1.6 1-2.1A7 7 0 0 0 12 2Z"/></svg>'
+  };
+
+  /* ============ Card interactions (expand / edit / delete) ============ */
+  board.addEventListener("click", function(e){
+    var cardEl=e.target.closest(".card"); if(!cardEl) return;
+    var id=cardEl.dataset.cardId;
+    if(e.target.closest(".edit")){ openEditor(cardEl,id); return; }
+    if(e.target.closest(".del")){ deleteCard(id); return; }
+    if(e.target.closest("a")||e.target.closest(".grip")||cardEl.classList.contains("editing")) return;
+    if(suppressClick){ return; }
+    if(e.target.closest(".card-title")||e.target.closest(".desc")||e.target===cardEl){
+      cardEl.classList.toggle("expanded");
+    }
+  });
+
+  function getCard(id){ return state.cards.find(function(c){return c.id===id;}); }
+
+  function deleteCard(id){
+    var c=getCard(id); if(!c) return;
+    if(!confirm('Delete "'+(c.title||id)+'"?')) return;
+    state.cards=state.cards.filter(function(x){return x.id!==id;});
+    save(); render();
+  }
+
+  function openEditor(cardEl,id){
+    var c=getCard(id); if(!c) return;
+    cardEl.classList.add("editing");
+    var laneOpts=state.lanes.map(function(l){return '<option value="'+esc(l.id)+'"'+(l.id===c.lane?' selected':'')+'>'+esc(l.name)+'</option>';}).join("");
+    cardEl.innerHTML=
+      '<div class="edit-form">'+
+        '<label>Title<input data-f="title" value="'+esc(c.title)+'"></label>'+
+        '<div class="edit-row">'+
+          '<label>ID<input data-f="id" value="'+esc(c.id)+'"></label>'+
+          '<label>Lane<select data-f="lane">'+laneOpts+'</select></label>'+
+        '</div>'+
+        '<div class="edit-row">'+
+          '<label>Priority<select data-f="priority">'+
+            ["Urgent","High","Medium","Low","None"].map(function(p){return '<option'+(priLabel(c.priority)===p?' selected':'')+'>'+p+'</option>';}).join("")+
+          '</select></label>'+
+          '<label>Estimate<input data-f="estimate" type="number" min="0" step="0.5" value="'+esc(c.estimate==null?"":c.estimate)+'"></label>'+
+        '</div>'+
+        '<div class="edit-row">'+
+          '<label>Status<input data-f="status" value="'+esc(c.status||"")+'"></label>'+
+          '<label>Assignee<input data-f="assignee" value="'+esc(c.assignee||"")+'"></label>'+
+        '</div>'+
+        '<div class="edit-row">'+
+          '<label>Due<input data-f="due" type="date" value="'+esc(c.due||"")+'"></label>'+
+          '<label>Labels (comma-sep)<input data-f="labels" value="'+esc((c.labels||[]).join(", "))+'"></label>'+
+        '</div>'+
+        '<label>Rationale<input data-f="rationale" value="'+esc(c.rationale||"")+'"></label>'+
+        '<label>Description<textarea data-f="description">'+esc(c.description||"")+'</textarea></label>'+
+        '<label>URL<input data-f="url" value="'+esc(c.url||"")+'"></label>'+
+        '<div class="edit-actions">'+
+          '<button class="btn ghost" data-act="cancel">Cancel</button>'+
+          '<button class="btn primary" data-act="save">Save</button>'+
+        '</div>'+
+      '</div>';
+    var titleEl=cardEl.querySelector('[data-f="title"]'); if(titleEl) titleEl.focus();
+    cardEl.querySelector('[data-act="cancel"]').addEventListener("click",function(){render();});
+    cardEl.querySelector('[data-act="save"]').addEventListener("click",function(){
+      var get=function(f){var el=cardEl.querySelector('[data-f="'+f+'"]'); return el?el.value:"";};
+      var newId=get("id").trim()||c.id;
+      if(newId!==c.id && getCard(newId)){ alert("Another card already uses ID "+newId); return; }
+      c.id=newId; c.title=get("title").trim(); c.lane=get("lane");
+      c.priority=get("priority"); var est=get("estimate"); c.estimate=est===""?null:num(est);
+      c.status=get("status").trim(); c.assignee=get("assignee").trim();
+      c.due=get("due"); c.labels=toArray(get("labels"));
+      c.rationale=get("rationale").trim(); c.description=get("description"); c.url=get("url").trim();
+      save(); render();
+    });
+    cardEl.addEventListener("keydown",function(ev){ if(ev.key==="Escape") render(); });
+  }
+
+  /* ============ Pointer-events drag engine (mouse + touch + pen) ============ */
+  var drag=null, suppressClick=false, THRESHOLD=6;
+
+  board.addEventListener("pointerdown", function(e){
+    if(e.button!=null && e.button!==0) return;                 // left/touch only
+    var cardEl=e.target.closest(".card"); if(!cardEl||cardEl.classList.contains("editing")) return;
+    var onGrip=!!e.target.closest(".grip");
+    var onInteractive=!!e.target.closest("button,a,input,select,textarea");
+    // Touch: only start from the grip (so the list can still scroll & cards stay tappable).
+    if(e.pointerType==="touch" && !onGrip) return;
+    if(onInteractive && !onGrip) return;
+    drag={ id:cardEl.dataset.cardId, el:cardEl, startX:e.clientX, startY:e.clientY,
+           pointerId:e.pointerId, active:false, ghost:null, ph:null,
+           offX:0, offY:0, targetLane:cardEl.closest(".lane").dataset.lane, targetIndex:0 };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+  });
+
+  function onMove(e){
+    if(!drag) return;
+    if(!drag.active){
+      if(Math.abs(e.clientX-drag.startX)<THRESHOLD && Math.abs(e.clientY-drag.startY)<THRESHOLD) return;
+      startDrag(e);
+    }
+    e.preventDefault();
+    drag.ghost.style.left=(e.clientX-drag.offX)+"px";
+    drag.ghost.style.top=(e.clientY-drag.offY)+"px";
+    positionPlaceholder(e.clientX,e.clientY);
+  }
+
+  function startDrag(e){
+    drag.active=true;
+    document.body.classList.add("dragging");
+    var r=drag.el.getBoundingClientRect();
+    drag.offX=e.clientX-r.left; drag.offY=e.clientY-r.top;
+    var ghost=drag.el.cloneNode(true);
+    ghost.classList.add("drag-ghost"); ghost.classList.remove("dim","expanded");
+    ghost.style.width=r.width+"px"; ghost.style.left=r.left+"px"; ghost.style.top=r.top+"px";
+    document.body.appendChild(ghost); drag.ghost=ghost;
+    var ph=document.createElement("div"); ph.className="drop-placeholder"; ph.style.height=r.height+"px";
+    drag.ph=ph;
+    drag.el.classList.add("source-hidden");
+    drag.el.parentNode.insertBefore(ph, drag.el.nextSibling);
+  }
+
+  function positionPlaceholder(x,y){
+    drag.ghost.style.display="none";
+    var under=document.elementFromPoint(x,y);
+    drag.ghost.style.display="";
+    if(!under) return;
+    var laneEl=under.closest(".lane");
+    document.querySelectorAll(".lane.drop-active").forEach(function(l){l.classList.remove("drop-active");});
+    if(!laneEl) return;
+    laneEl.classList.add("drop-active");
+    var list=laneEl.querySelector(".lane-cards");
+    var hint=list.querySelector(".empty-hint"); if(hint) hint.remove();
+    drag.targetLane=laneEl.dataset.lane;
+    var cards=[].slice.call(list.querySelectorAll(".card")).filter(function(c){return c!==drag.el && !c.classList.contains("source-hidden");});
+    var inserted=false;
+    for(var i=0;i<cards.length;i++){
+      var cr=cards[i].getBoundingClientRect();
+      if(y < cr.top+cr.height/2){ list.insertBefore(drag.ph, cards[i]); inserted=true; break; }
+    }
+    if(!inserted) list.appendChild(drag.ph);
+  }
+
+  function onUp(e){
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+    window.removeEventListener("pointercancel", onUp);
+    if(!drag){ return; }
+    if(!drag.active){ drag=null; return; }   // was a click, not a drag
+    // Commit: figure out target lane + index from placeholder position
+    var ph=drag.ph, laneId=drag.targetLane;
+    var list=ph.parentNode;
+    // Exclude the still-in-DOM (hidden) source card, else same-lane downward
+    // moves land one slot too low.
+    var domOrder=[].slice.call(list.children).filter(function(n){
+      return (n.classList.contains("card") && n!==drag.el) || n===ph;
+    });
+    var visualIndex=domOrder.indexOf(ph); // index among target-lane cards (sans source)
+    // cleanup DOM artifacts
+    if(drag.ghost) drag.ghost.remove();
+    if(ph) ph.remove();
+    drag.el.classList.remove("source-hidden");
+    document.querySelectorAll(".lane.drop-active").forEach(function(l){l.classList.remove("drop-active");});
+    document.body.classList.remove("dragging");
+    moveCard(drag.id, laneId, visualIndex);
+    drag=null;
+    suppressClick=true; setTimeout(function(){suppressClick=false;},60);
+  }
+
+  // Move card `id` into `laneId` at visual position `index` (among that lane's cards, excluding the card itself).
+  function moveCard(id, laneId, index){
+    var card=getCard(id); if(!card) return;
+    var movingWithin = card.lane===laneId;
+    // current lane order (excluding the moving card)
+    var laneCardIds = state.cards.filter(function(c){return c.lane===laneId && c.id!==id;}).map(function(c){return c.id;});
+    if(index<0) index=0; if(index>laneCardIds.length) index=laneCardIds.length;
+    var beforeId = laneCardIds[index]; // insert before this card's global position; if undefined -> append within lane
+    // remove the card from the flat array
+    state.cards=state.cards.filter(function(c){return c.id!==id;});
+    card.lane=laneId;
+    if(beforeId==null){
+      // append after the last card of this lane (or at end if lane empty)
+      var lastPos=-1;
+      state.cards.forEach(function(c,i){ if(c.lane===laneId) lastPos=i; });
+      if(lastPos<0) state.cards.push(card);
+      else state.cards.splice(lastPos+1,0,card);
+    }else{
+      var pos=state.cards.findIndex(function(c){return c.id===beforeId;});
+      state.cards.splice(pos<0?state.cards.length:pos,0,card);
+    }
+    save(); render();
+    void movingWithin;
+  }
+
+  /* ============ Toolbar actions ============ */
+  function safeJsonForScript(obj){ return JSON.stringify(obj).replace(/</g,"\\u003c"); }
+  function download(content, filename, type){
+    var blob=new Blob([content],{type:type});
+    var url=URL.createObjectURL(blob);
+    var a=document.createElement("a"); a.href=url; a.download=filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function(){URL.revokeObjectURL(url);},1000);
+  }
+  function dateStamp(){ return new Date().toISOString().slice(0,10); }
+  function slug(s){ return (s||"board").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,40)||"board"; }
+
+  document.getElementById("btn-save-json").addEventListener("click", function(){
+    download(JSON.stringify(state,null,2), slug(state.title)+"-"+dateStamp()+".json", "application/json");
+  });
+
+  document.getElementById("btn-save-html").addEventListener("click", function(){
+    var clone=document.documentElement.cloneNode(true);
+    // bake current state, with a fresh boardId so the snapshot is self-contained & independent
+    var snap=JSON.parse(JSON.stringify(state)); snap.boardId="board-"+uid();
+    var dataEl=clone.querySelector("#board-data");
+    dataEl.textContent=safeJsonForScript(snap);
+    // strip rendered board + transient classes so the file is small and reloads clean
+    var b=clone.querySelector("#board"); if(b) b.innerHTML="";
+    clone.querySelector("#storage-banner") && clone.querySelector("#storage-banner").classList.remove("show");
+    clone.setAttribute("data-theme", document.documentElement.getAttribute("data-theme")||"light");
+    var html="<!DOCTYPE html>\n"+clone.outerHTML;
+    download(html, slug(state.title)+"-"+dateStamp()+".html", "text/html");
+  });
+
+  document.getElementById("btn-load-json").addEventListener("click", function(){ document.getElementById("file-input").click(); });
+  document.getElementById("file-input").addEventListener("change", function(e){
+    var file=e.target.files[0]; if(!file) return;
+    var reader=new FileReader();
+    reader.onload=function(){
+      try{
+        var data=JSON.parse(reader.result);
+        if(!data || !Array.isArray(data.cards)) throw new Error("Not a board JSON (missing cards array).");
+        var keepId=state.boardId;
+        state=normalize(data); state.boardId=keepId;  // keep saving under this board
+        save(); render();
+        alert("Loaded "+state.cards.length+" cards.");
+      }catch(err){ alert("Couldn't load file: "+err.message); }
+      e.target.value="";
+    };
+    reader.readAsText(file);
+  });
+
+  document.getElementById("btn-reset").addEventListener("click", function(){
+    if(!confirm("Discard all changes and restore the original pre-sorted board?")) return;
+    try{ localStorage.removeItem(STORAGE_KEY); }catch(e){}
+    state=clone(ORIGINAL); save(); render();
+  });
+
+  document.getElementById("btn-add").addEventListener("click", function(){
+    var n=1; while(getCard("NEW-"+n)) n++;
+    var card={id:"NEW-"+n, lane:state.lanes[0].id, title:"New card", priority:"None", status:"", estimate:null, labels:[], rationale:""};
+    state.cards.unshift(card); save(); render();
+    var el=board.querySelector('.card[data-card-id="'+CSS.escape(card.id)+'"]');
+    if(el) openEditor(el, card.id);
+  });
+
+  // Editable board title
+  titleInput.addEventListener("input", function(){ state.title=titleInput.value; document.title=state.title; });
+  titleInput.addEventListener("change", function(){ save(); });
+  titleInput.addEventListener("keydown", function(e){ if(e.key==="Enter"){ e.preventDefault(); titleInput.blur(); } });
+
+  // Editable lane names (event delegation on board)
+  board.addEventListener("blur", function(e){
+    var ln=e.target.closest(".lane-name[contenteditable]"); if(!ln) return;
+    var laneId=ln.dataset.lane; var lane=state.lanes.find(function(l){return l.id===laneId;});
+    if(lane){ lane.name=ln.textContent.trim()||lane.name; save(); }
+  }, true);
+  board.addEventListener("keydown", function(e){
+    var ln=e.target.closest(".lane-name[contenteditable]");
+    if(ln && e.key==="Enter"){ e.preventDefault(); ln.blur(); }
+  });
+
+  // Search
+  document.getElementById("search").addEventListener("input", function(e){
+    searchTerm=e.target.value.trim().toLowerCase(); render();
+  });
+
+  // Theme
+  function applyTheme(t){ document.documentElement.setAttribute("data-theme", t); try{localStorage.setItem(THEME_KEY,t);}catch(e){} }
+  (function initTheme(){ try{ var t=localStorage.getItem(THEME_KEY); if(t) document.documentElement.setAttribute("data-theme",t); }catch(e){} })();
+  document.getElementById("btn-theme").addEventListener("click", function(){
+    applyTheme(document.documentElement.getAttribute("data-theme")==="dark"?"light":"dark");
+  });
+
+  // Keyboard: "/" focuses search
+  document.addEventListener("keydown", function(e){
+    if(e.key==="/" && !/input|textarea|select/i.test((document.activeElement||{}).tagName) && !document.activeElement.isContentEditable){
+      e.preventDefault(); document.getElementById("search").focus();
+    }
+  });
+
+  /* ============ Boot ============ */
+  reflectStorageMode();
+  render();
+})();
+</script>
+</body>
+</html>

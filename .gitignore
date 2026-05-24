@@ -1,0 +1,18 @@
+# OS / editor / Python noise (ignored at every level, incl. inside skills)
+.DS_Store
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# Allowlist model: ignore every top-level entry, then re-include only the
+# skills that belong to THIS collection. Anything else under ~/.claude/skills
+# (e.g. skills managed in claude-skill-generator, plugin-installed skills, or
+# ones excluded for now like ipl-fantasy) stays untracked automatically.
+/*
+!/.gitignore
+!/README.md
+!/priority-board-html/
+!/linkedin-image-merge/
