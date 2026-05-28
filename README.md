@@ -37,13 +37,6 @@ cp -R ashwin-claude-skills/linkedin-image-merge ~/.claude/skills/
 
 Copy only the folders you want — each skill is self-contained.
 
-## Not in this repo
-
-Skills produced by the **skill-generator** meta-skill — `skill-generator`,
-`ddia-system-design`, `stock-picks-bg` — live in
-[claude-skill-generator](https://github.com/4shw1nS/claude-skill-generator).
-`ipl-fantasy` is intentionally excluded for now.
-
 ## License
 
 [MIT](LICENSE) © Ashwin Sinha
