@@ -30,9 +30,12 @@ space is filled with a blurred extension of that same image. Bundles
 
 ```bash
 git clone https://github.com/4shw1nS/ashwin-claude-skills.git
-cp -R ashwin-claude-skills/priority-board-html ~/.claude/skills/
-# then in Claude Code: /priority-board-html
+cp -R ashwin-claude-skills/priority-board-html  ~/.claude/skills/
+cp -R ashwin-claude-skills/linkedin-image-merge ~/.claude/skills/
+# in Claude Code: /priority-board-html  or  /linkedin-image-merge
 ```
+
+Copy only the folders you want — each skill is self-contained.
 
 ## Not in this repo
 
