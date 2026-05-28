@@ -1,0 +1,19 @@
+{
+  "title": "Smoke Test Board",
+  "lanes": [
+    {"id":"now","name":"Now","wipLimit":2},
+    {"id":"next","name":"Next"},
+    {"id":"later","name":"Later"},
+    {"id":"cut","name":"Cut"}
+  ],
+  "cards": [
+    {"id":"T-1","lane":"now","title":"Multi-card test","priority":"Urgent","status":"In Progress","estimate":3,"labels":["bug","customer"],"assignee":"Priya","due":"2026-05-30","rationale":"Urgent and in flight","description":"Customers on Safari can't complete checkout. Started yesterday, root cause looks like a CORS preflight regression."},
+    {"id":"T-2","lane":"now","title":"Second now card","priority":"High","status":"Todo","estimate":2,"labels":["security"],"assignee":"Ashwin","rationale":"Security-tagged, high priority"},
+    {"id":"T-3","lane":"now","title":"Card that pushes lane past WIP limit","priority":"Medium","status":"Todo","estimate":1,"labels":["infra"],"assignee":"Priya","rationale":"Now lane is over its WIP cap of 2 — count pill should be red"},
+    {"id":"T-4","lane":"next","title":"Float estimate (5.5)","priority":"Medium","status":"Todo","estimate":5.5,"labels":["frontend"],"assignee":"Ashwin","due":"2026-06-15","rationale":"Tests build_board.py float handling"},
+    {"id":"T-5","lane":"next","title":"Due exactly today (should NOT be overdue)","priority":"High","status":"Todo","estimate":2,"labels":["bug"],"assignee":"Priya","due":"2026-05-28","rationale":"Tests timezone fix in isOverdue"},
+    {"id":"T-6","lane":"later","title":"Backlog item","priority":"Low","labels":["nice-to-have"],"assignee":"Ashwin","rationale":"Low priority, deferred"},
+    {"id":"T-7","lane":"later","title":"Old card (to test aging chip)","priority":"Medium","status":"Backlog","labels":["backend"],"assignee":"Priya","enteredLaneAt":"2026-05-05T10:00:00","rationale":"Entered lane 23 days ago — should show stale amber chip"},
+    {"id":"T-8","lane":"cut","title":"Won't do","priority":"None","status":"Canceled","rationale":"Duplicate of T-1"}
+  ]
+}

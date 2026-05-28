@@ -119,6 +119,12 @@ A list of cards, or an object with `title`/`lanes`/`cards`. Minimum per card is
 ```json
 {
   "title": "Q3 Reprioritization",
+  "lanes": [
+    {"id":"now",   "name":"Now",   "wipLimit": 5},
+    {"id":"next",  "name":"Next"},
+    {"id":"later", "name":"Later"},
+    {"id":"cut",   "name":"Cut"}
+  ],
   "cards": [
     {
       "id": "LIN-412",
@@ -141,8 +147,17 @@ A list of cards, or an object with `title`/`lanes`/`cards`. Minimum per card is
 
 - `order`: number, ascending within the lane (build script sorts by it, then
   drops it — runtime tracks order by array position).
-- `due`: ISO `YYYY-MM-DD` so the card's overdue highlight works.
-- `estimate`: number (rendered as "N pts"). Strings are tolerated.
+- `due`: ISO `YYYY-MM-DD` so the card's overdue highlight works (parsed as
+  local time, so "today" never renders as overdue).
+- `estimate`: number (rendered as "N pts"). Strings are tolerated; floats are
+  preserved (e.g. `5.5`).
+- `lanes[].wipLimit` (optional): positive integer. When the lane's card count
+  reaches it the count pill turns amber; exceeding it turns red. Users can also
+  set/change it at runtime by clicking the count pill.
+- `enteredLaneAt` (optional, ISO timestamp): runtime sets this on add and on
+  every lane change; used for the "Nd in lane" aging chip (shown when ≥ 3d in
+  non-Cut lanes; amber at ≥ 14d; card fades at ≥ 30d). You normally don't write
+  this — `normalize()` fills it in from the board's `updatedAt` on first load.
 - Unknown fields you want to keep → nest under `extra: { ... }`.
 
 ---
@@ -159,13 +174,14 @@ be fed straight back into `parse_input.py`/`build_board.py` or shared.
   "boardId": "board-q3-reprioritization-2026-05-24",
   "title": "Q3 Reprioritization",
   "lanes": [
-    {"id":"now","name":"Now"},{"id":"next","name":"Next"},
+    {"id":"now","name":"Now","wipLimit":5},{"id":"next","name":"Next"},
     {"id":"later","name":"Later"},{"id":"cut","name":"Cut"}
   ],
   "cards": [ { "id":"LIN-412","lane":"now","title":"...","priority":"Urgent",
                "status":"In Progress","estimate":3,"labels":["bug"],
                "assignee":"Priya","due":"2026-05-27","url":"...",
-               "rationale":"...","description":"...","extra":{} } ],
+               "rationale":"...","description":"...",
+               "enteredLaneAt":"2026-05-24T16:30:00","extra":{} } ],
   "updatedAt": "2026-05-24T16:30:00"
 }
 ```
@@ -173,4 +189,7 @@ be fed straight back into `parse_input.py`/`build_board.py` or shared.
 - `boardId` namespaces `localStorage` so multiple boards don't collide (and so
   the `null`-origin used on `file://` doesn't mix boards together).
 - Lanes are data, so renaming a lane in the UI just edits `lanes[].name`; the
-  four ids stay `now/next/later/cut`.
+  four ids stay `now/next/later/cut`. `lanes[].wipLimit` is the optional WIP cap.
+- `cards[].enteredLaneAt` powers the aging chip and is bumped automatically on
+  every lane change; transient UI state (undo stack, current selection, filter
+  chips, search term) is intentionally **not** persisted.

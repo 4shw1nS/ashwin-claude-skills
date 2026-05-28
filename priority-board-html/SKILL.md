@@ -79,8 +79,24 @@ if unclear). Then tell the user:
 - **Where** the file is and to **double-click to open** it (works offline).
 - **How it behaves**: drag the **⠿ handle** to move/reorder cards across lanes
   (works on desktop and touch); changes **auto-save in the browser**; click a
-  card to expand its description; pencil to edit, ＋ Card to add, search/`/` to
-  filter, 🌓 to theme, ↺ Reset to restore the original.
+  card to expand its description; pencil to edit, ＋ Card to add (per-lane
+  ＋ button in each lane head), search/`/` to filter, **Filters** toggles a
+  chip row for priority/assignee/label, **📋 MD** copies the board to clipboard
+  as markdown, **💡** hides/shows rationale, 🌓 toggles theme, ↺ Reset restores
+  the original.
+- **Keyboard**: `/` focus search · `j`/`k` move card focus · `1`–`4` move
+  focused card to that lane · `e` edit · `Enter` expand · `Del`/`Backspace`
+  delete · `Esc` clear selection · `⌘Z`/`Ctrl-Z` undo (30-step history).
+- **Bulk select**: `⇧`+click range-select, `⌘`/`Ctrl`+click toggle one;
+  dragging any selected card moves all selected together.
+- **WIP limits**: click a lane's count pill to set a soft WIP cap; the pill
+  turns amber at the limit and red over it. You can also pre-seed limits in
+  the items JSON: `"lanes":[{"id":"now","name":"Now","wipLimit":5}, ...]`.
+- **Aging**: each card tracks when it entered its current lane; after 3 days a
+  "🕒 Nd in lane" chip appears, amber after 14d, the card fades after 30d
+  (suppressed in Cut).
+- **Print**: `Cmd-P` produces a clean printable view (toolbar hidden, lanes
+  stacked, all descriptions expanded, no shadows).
 - **Durable saves**: **Save HTML** downloads a fresh self-contained file with
   the current board baked in (reopens anywhere exactly as saved); **JSON**
   exports a re-importable state file; **Load** restores from one.
@@ -107,8 +123,10 @@ Offer to open it: `open "<path>"` (macOS).
 - **Big lists**: the board handles a few hundred cards fine. For thousands,
   suggest filtering the source first.
 - **Re-running**: feeding a previously exported state JSON back through
-  `parse_input.py` (or `build_board.py --data state.json`) rebuilds the board —
-  useful for restyling or merging.
+  `build_board.py --data state.json` rebuilds the board (useful for restyling or
+  re-titling). Don't feed a state JSON through `parse_input.py` — it only knows
+  the canonical input aliases, so `lane`/`rationale`/`order` would be dropped
+  into `extra` and the lane assignments lost.
 
 ## When NOT to use
 

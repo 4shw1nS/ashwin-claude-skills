@@ -121,7 +121,9 @@ def rows_to_records(rows):
                 rec["extra"][str(src)] = cv
         if not rec["id"]:
             rec["id"] = "ROW-%d" % (i + 1)
-        # Drop fully empty rows (no title and no id beyond the synthetic one).
+        # Drop rows that have no usable content (no title / desc / status / priority / labels)
+        # AND no real id — i.e. only a synthetic ROW-n id. Rows with a real id but otherwise
+        # empty fields are kept (the user may want to triage them).
         if not rec["title"] and not any(rec[k] for k in ("description", "status", "priority")) and not rec["labels"]:
             if rec["id"].startswith("ROW-"):
                 continue

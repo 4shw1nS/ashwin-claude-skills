@@ -74,14 +74,15 @@ def clean_card(c, i):
             out["order"] = float(c["order"])
         except (TypeError, ValueError):
             pass
-    for k in ("description", "priority", "status", "assignee", "due", "url", "rationale"):
+    for k in ("description", "priority", "status", "assignee", "due", "url", "rationale", "enteredLaneAt"):
         v = c.get(k)
         if v not in (None, ""):
             out[k] = str(v)
     est = c.get("estimate")
     if est not in (None, ""):
         try:
-            out["estimate"] = int(est) if float(est) == int(float(est)) else float(est)
+            f = float(est)
+            out["estimate"] = int(f) if f == int(f) else f
         except (TypeError, ValueError):
             out["estimate"] = str(est)
     if labels:
@@ -123,13 +124,28 @@ def main():
     stamp = datetime.date.today().isoformat()
     board_id = args.board_id or ("board-" + re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:32] + "-" + stamp)
 
-    # normalize lanes
+    # normalize lanes — only title-case when the name was defaulted from the id,
+    # so user-renamed lanes (e.g. "URGENT NOW", "in-progress") survive a rebuild.
+    # Preserve optional fields like wipLimit so input can pre-set WIP caps.
     norm_lanes = []
     for l in (lanes or DEFAULT_LANES):
         if isinstance(l, dict) and l.get("id"):
-            norm_lanes.append({"id": str(l["id"]), "name": str(l.get("name", l["id"]).title())})
+            name = l.get("name")
+            lane = {
+                "id": str(l["id"]),
+                "name": str(name) if name else str(l["id"]).title(),
+            }
+            wip = l.get("wipLimit")
+            if wip not in (None, ""):
+                try:
+                    v = int(wip)
+                    if v > 0:
+                        lane["wipLimit"] = v
+                except (TypeError, ValueError):
+                    pass
+            norm_lanes.append(lane)
     if not norm_lanes:
-        norm_lanes = DEFAULT_LANES
+        norm_lanes = list(DEFAULT_LANES)
 
     state = {
         "version": 1,
