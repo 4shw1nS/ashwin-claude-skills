@@ -95,7 +95,7 @@ def clean_card(c, i):
 def main():
     ap = argparse.ArgumentParser(description="Build a self-contained HTML priority board from classified items.")
     ap.add_argument("--data", required=True, help="Path to items JSON (cards with lane assignments)")
-    ap.add_argument("--template", default=os.path.join(HERE, "board_template.html"))
+    ap.add_argument("--template", default=os.path.join(HERE, "..", "templates", "board_template.html"))
     ap.add_argument("--title", default=None, help="Board title (overrides title in --data)")
     ap.add_argument("--board-id", default=None, help="localStorage namespace id (default: derived from title+date)")
     ap.add_argument("--out", required=True, help="Output .html path")

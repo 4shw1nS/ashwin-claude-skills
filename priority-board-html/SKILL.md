@@ -33,7 +33,7 @@ Identify the input, then produce normalized records.
 
 - **File** (`.csv`, `.tsv`, `.xlsx`, `.json`): run the parser.
   ```bash
-  python3 ~/.claude/skills/priority-board-html/parse_input.py --input "<path>"
+  python3 ~/.claude/skills/priority-board-html/scripts/parse_input.py --input "<path>"
   ```
   It prints `{columns_detected, unmapped, count, records}`. For `.xlsx` it
   auto-installs `openpyxl` on first use; add `--sheet <name|index>` to pick a
@@ -67,7 +67,7 @@ columns both look like the title). Otherwise proceed.
 ## Phase C — Build & deliver
 
 ```bash
-python3 ~/.claude/skills/priority-board-html/build_board.py \
+python3 ~/.claude/skills/priority-board-html/scripts/build_board.py \
   --data items.json \
   --title "<board title>" \
   --out "<output dir>/priority-board.html"

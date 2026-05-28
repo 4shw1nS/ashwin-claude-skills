@@ -21,10 +21,10 @@ Produce a symmetric, LinkedIn-tuned side-by-side merge of two input images.
 
 ## How to run it
 
-The script lives next to this file at `~/.claude/skills/linkedin-image-merge/merge_images.py` and depends only on Pillow (already installed on this machine via Homebrew).
+The script lives next to this file at `~/.claude/skills/linkedin-image-merge/scripts/merge_images.py` and depends only on Pillow (already installed on this machine via Homebrew).
 
 ```bash
-python3 ~/.claude/skills/linkedin-image-merge/merge_images.py \
+python3 ~/.claude/skills/linkedin-image-merge/scripts/merge_images.py \
     <left_image> <right_image> \
     -o <output_path>
 ```
