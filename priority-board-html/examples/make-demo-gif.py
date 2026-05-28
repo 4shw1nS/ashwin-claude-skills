@@ -1,76 +1,51 @@
 #!/usr/bin/env python3
-"""Generate a slideshow GIF that demos priority-board-html.
+"""Generate a demo MP4 (+ fallback GIF) for priority-board-html.
 
-For each frame we take the smoke-test HTML, inject a localStorage-clear
-script in <head> (so frames don't bleed into each other), and append a
-small setup script before </body> that puts the page into the demo state.
-Then we headless-Chrome-screenshot it, label it, and ffmpeg-assemble.
+Storyboard is action-first: open with a card mid-drag from Now → Cut, then drop
+it and show the WIP counter flip from 3/2 (red) to 2/2 (amber). Only after that
+do we show the static board and the rest of the features. The xfade durations
+are per-frame so the drag sequence uses near-hard cuts (motion feel) while
+scene transitions get the longer crossfade.
+
+Each frame is one screenshot of the smoke-test HTML, with a small <script>
+appended that puts the page into that state plus a fixed-position caption.
 """
-import os
 import shutil
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
+# ---------- paths ----------
 BASE = Path("/tmp/pb_smoke.html")
 WORK = Path("/tmp/pb_demo")
 OUT_DIR = Path("/Users/ashwinsinha/Desktop/Root/Ashwin/Engg/Claude")
-OUT_MP4 = OUT_DIR / "priority-board-demo.mp4"   # primary — ~10× smaller than GIF
-OUT_GIF = OUT_DIR / "priority-board-demo.gif"   # fallback for surfaces that don't accept video
+OUT_MP4 = OUT_DIR / "priority-board-demo.mp4"   # primary
+OUT_GIF = OUT_DIR / "priority-board-demo.gif"   # fallback
 
 CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 WIDTH, HEIGHT = 1500, 900
-SCALE = 1  # device-pixel-ratio for screenshots
 
-# Every frame renders dark — the user explicitly preferred dark mode.
-# (slug, caption, setup_js — runs ~150ms after load with full DOM ready)
-FRAMES = [
-    ("01-default",
-     "Pre-sorted Now / Next / Later / Cut · 3/2 over WIP cap · 23d aging chip",
-     ""),
-    ("02-expanded",
-     "Click a card to expand its description",
-     "var c=document.querySelector('.card[data-card-id=\"T-1\"]'); if(c){c.classList.add('expanded'); c.scrollIntoView({block:'center'});}"),
-    ("03-filters",
-     "Filter chips — auto-built from priority, assignee, label",
-     "document.getElementById('btn-filters').click();"
-     "setTimeout(function(){"
-     "  var chips=document.querySelectorAll('.filter-chip');"
-     "  chips.forEach(function(c){ if(c.dataset.filterVal==='Urgent' || c.dataset.filterVal==='High' || c.dataset.filterVal==='Priya') c.click(); });"
-     "}, 60);"),
-    ("04-search",
-     "Text search across id / title / description / labels / assignee",
-     "var s=document.getElementById('search'); s.value='due'; s.dispatchEvent(new Event('input',{bubbles:true}));"),
-    ("05-select",
-     "Bulk select: ⇧+click range, ⌘+click toggle — drag any to move all",
-     "['T-1','T-2','T-3'].forEach(function(id){ var el=document.querySelector('.card[data-card-id=\"'+id+'\"]'); if(el) el.classList.add('selected'); });"
-     "document.getElementById('selection-count').textContent='3 selected';"
-     "document.getElementById('selection-bar').classList.add('show');"),
-    ("06-rationale",
-     "Hide rationale (💡) to declutter cards",
-     "document.body.classList.add('hide-rationale');"
-     "var b=document.getElementById('btn-rationale'); if(b) b.classList.add('active');"),
-    ("07-edit",
-     "Inline edit form · ID / lane / priority / due / labels / rationale",
-     "var c=document.querySelector('.card[data-card-id=\"T-2\"] .edit'); if(c) c.click();"),
-    ("08-wip-amber",
-     "WIP limit on Now lowered to 3 → amber 'at limit' pill",
-     "var cnt=document.querySelector('[data-lane-cnt=\"now\"]'); if(cnt){ cnt.textContent='3/3'; cnt.classList.remove('over-limit'); cnt.classList.add('at-limit'); cnt.title='WIP limit 3 — click to change'; }"),
-]
+MP4_WIDTH = 1400
+MP4_FPS = 24
+GIF_WIDTH = 1000
+GIF_FPS = 12
 
+DEFAULT_HOLD = 2.8     # static-feature scenes
+DEFAULT_FADE = 0.45    # scene→scene crossfade
+MOTION_FADE = 0.08     # near-hard cut between motion sub-frames
 
+# ---------- caption styling (vertically slightly below center) ----------
 CAPTION_CSS = """
 <style>
   .demo-caption{
-    /* sit slightly below the visual center so the native footer (shortcut hints)
-       stays visible underneath, and the upper half of the board remains uncovered */
     position:fixed; top:60%; left:50%; transform:translate(-50%,-50%);
     z-index:9999; max-width:min(880px, 78vw);
     background:rgba(15,18,23,0.92);
     border:1px solid rgba(165,180,252,0.35);
     box-shadow:0 24px 60px rgba(0,0,0,0.55), 0 0 0 1px rgba(0,0,0,0.4);
     color:#fff; padding:22px 34px; border-radius:18px; text-align:center;
-    font:600 26px/1.32 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    font:600 28px/1.32 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
     letter-spacing:.005em; pointer-events:none;
     backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px);
   }
@@ -81,45 +56,177 @@ CAPTION_CSS = """
 </style>
 """
 
-def build_frame_html(slug: str, caption: str, step_label: str, setup_js: str) -> Path:
+# ---------- per-frame setup scripts ----------
+
+# Mid-flight: T-3 lifted from Now, ghost positioned between Now and Cut,
+# Cut lane shows the drop-active outline + a placeholder where it will land.
+DRAG_FLIGHT_JS = r"""
+(function(){
+  var src = document.querySelector('.card[data-card-id="T-3"]');
+  if (!src) return;
+  var rect = src.getBoundingClientRect();
+  src.classList.add('source-hidden');
+  // Placeholder in Now where T-3 was
+  var nowCards = document.querySelector('.lane[data-lane="now"] .lane-cards');
+  var ph1 = document.createElement('div');
+  ph1.className = 'drop-placeholder';
+  ph1.style.height = rect.height + 'px';
+  nowCards.appendChild(ph1);
+  // The floating drag ghost — same card, rotated, mid-flight
+  var ghost = src.cloneNode(true);
+  ghost.classList.remove('source-hidden','dim','expanded','selected');
+  ghost.classList.add('drag-ghost');
+  ghost.style.width = rect.width + 'px';
+  ghost.style.left = '780px';
+  ghost.style.top  = '240px';
+  document.body.appendChild(ghost);
+  // Cut highlighted as the drop target
+  var cutLane = document.querySelector('.lane[data-lane="cut"]');
+  cutLane.classList.add('drop-active');
+  var cutCards = cutLane.querySelector('.lane-cards');
+  var hint = cutCards.querySelector('.empty-hint');
+  if (hint) hint.remove();
+  var ph2 = document.createElement('div');
+  ph2.className = 'drop-placeholder';
+  ph2.style.height = rect.height + 'px';
+  cutCards.insertBefore(ph2, cutCards.firstChild);
+})();
+""".strip()
+
+# Landed: T-3 actually in Cut. WIP pill flips 3/2 (red) → 2/2 (amber) with a
+# small scale+glow pulse so the change is impossible to miss.
+DRAG_LANDED_JS = r"""
+(function(){
+  var src = document.querySelector('.card[data-card-id="T-3"]');
+  var cutCards = document.querySelector('.lane[data-lane="cut"] .lane-cards');
+  if (src && cutCards) {
+    src.classList.remove('source-hidden');
+    cutCards.insertBefore(src, cutCards.firstChild);
+  }
+  var nowCnt = document.querySelector('[data-lane-cnt="now"]');
+  if (nowCnt) {
+    nowCnt.textContent = '2/2';
+    nowCnt.classList.remove('over-limit');
+    nowCnt.classList.add('at-limit');
+    nowCnt.style.transform = 'scale(1.25)';
+    nowCnt.style.boxShadow = '0 0 0 5px rgba(245,158,11,0.45), 0 0 24px rgba(245,158,11,0.6)';
+    nowCnt.style.fontWeight = '700';
+  }
+  var nowSum = document.querySelector('.lane[data-lane="now"] .lane-meta .sum');
+  if (nowSum) nowSum.textContent = 'Σ 5';
+  var cutCnt = document.querySelector('[data-lane-cnt="cut"]');
+  if (cutCnt) cutCnt.textContent = '2';
+  document.querySelectorAll('.drop-placeholder').forEach(function(p){ p.remove(); });
+  document.querySelectorAll('.lane.drop-active').forEach(function(l){ l.classList.remove('drop-active'); });
+  document.querySelectorAll('.empty-hint').forEach(function(h){ h.remove(); });
+})();
+""".strip()
+
+FILTERS_JS = r"""
+document.getElementById('btn-filters').click();
+setTimeout(function(){
+  document.querySelectorAll('.filter-chip').forEach(function(c){
+    if (c.dataset.filterVal==='Urgent' || c.dataset.filterVal==='High' || c.dataset.filterVal==='Priya') c.click();
+  });
+}, 60);
+""".strip()
+
+BULK_JS = r"""
+['T-1','T-2','T-3'].forEach(function(id){
+  var el=document.querySelector('.card[data-card-id="'+id+'"]');
+  if (el) el.classList.add('selected');
+});
+document.getElementById('selection-count').textContent='3 selected';
+document.getElementById('selection-bar').classList.add('show');
+""".strip()
+
+EDIT_JS = r"""
+var c=document.querySelector('.card[data-card-id="T-2"] .edit');
+if (c) c.click();
+""".strip()
+
+# Aging: glow the T-7 card to draw the eye to its "23d in lane" chip.
+AGING_JS = r"""
+(function(){
+  var card = document.querySelector('.card[data-card-id="T-7"]');
+  if (!card) return;
+  card.style.boxShadow = '0 0 0 3px rgba(245,158,11,0.7), 0 14px 32px rgba(0,0,0,0.55)';
+  card.style.transform = 'translateY(-2px)';
+  var chip = card.querySelector('.chip.age');
+  if (chip) {
+    chip.style.transform = 'scale(1.18)';
+    chip.style.boxShadow = '0 0 0 3px rgba(245,158,11,0.45)';
+  }
+})();
+""".strip()
+
+
+# ---------- storyboard ----------
+@dataclass
+class F:
+    slug: str
+    caption: str
+    setup: str = ""
+    hold: float = DEFAULT_HOLD
+    fade_in: float = DEFAULT_FADE   # crossfade FROM previous frame
+
+
+FRAMES = [
+    # Scene 1: action (drag a card live)
+    F("01-before", "Live drag-drop reprioritization",
+      "", hold=1.4, fade_in=DEFAULT_FADE),
+    F("02-flight", "Live drag-drop reprioritization",
+      DRAG_FLIGHT_JS, hold=0.55, fade_in=MOTION_FADE),
+    F("03-landed", "WIP updates live · 3/2 → 2/2",
+      DRAG_LANDED_JS, hold=2.6, fade_in=MOTION_FADE),
+    # Scene 2: it's a real generated board
+    F("04-overview", "Custom board, generated with Claude",
+      "", hold=2.8),
+    # Scene 3+: features at a glance
+    F("05-filters", "Slice by priority, owner, or label",
+      FILTERS_JS, hold=2.6),
+    F("06-bulk",    "Move many cards at once",
+      BULK_JS, hold=2.6),
+    F("07-edit",    "Edit anything inline",
+      EDIT_JS, hold=2.6),
+    F("08-aging",   "Stale work surfaces itself",
+      AGING_JS, hold=2.6),
+]
+
+
+# ---------- frame builder ----------
+def build_frame_html(frame: F, step_label: str) -> Path:
     html = BASE.read_text()
-    # 0. Force dark theme as the page default. The IIFE only sets the attribute
-    #    when localStorage has a value, and we clear localStorage below, so the
-    #    HTML attribute is the source of truth here.
+    # Force dark theme as the default
     html = html.replace('data-theme="light"', 'data-theme="dark"', 1)
-    # 1. Clear localStorage before main IIFE runs (so frames don't bleed into each other)
+    # Clear localStorage so frames don't bleed into each other
     clear = '<script>try{localStorage.clear()}catch(e){}</script>'
     html = html.replace('</head>', clear + CAPTION_CSS + '</head>', 1)
-    # 2. Append setup script that fires after render, then the caption overlay
     caption_html = (
         '<div class="demo-caption">'
         f'<span class="step">{step_label}</span>'
-        f'{caption}'
+        f'{frame.caption}'
         '</div>'
     )
     injection = caption_html
-    if setup_js:
+    if frame.setup:
         injection += (
             '<script>window.addEventListener("load",function(){'
-            'setTimeout(function(){' + setup_js + '},150);});</script>'
+            'setTimeout(function(){' + frame.setup + '},150);});</script>'
         )
     html = html.replace('</body>', injection + '</body>', 1)
-    target = WORK / f"frame-{slug}.html"
+    target = WORK / f"frame-{frame.slug}.html"
     target.write_text(html)
     return target
 
 
 def shoot(html_path: Path, png_path: Path) -> None:
     cmd = [
-        CHROME,
-        "--headless=new",
-        "--hide-scrollbars",
-        "--disable-gpu",
-        "--no-sandbox",
+        CHROME, "--headless=new", "--hide-scrollbars",
+        "--disable-gpu", "--no-sandbox",
         f"--window-size={WIDTH},{HEIGHT}",
         f"--screenshot={png_path}",
         "--virtual-time-budget=2000",
-        "--force-device-scale-factor=" + str(SCALE),
         html_path.absolute().as_uri(),
     ]
     res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
@@ -128,49 +235,51 @@ def shoot(html_path: Path, png_path: Path) -> None:
         raise SystemExit(1)
 
 
-MP4_WIDTH = 1400
-MP4_FPS = 24      # libx264 handles motion+fade beautifully at 24fps
-GIF_WIDTH = 1000
-GIF_FPS = 12
-HOLD = 3.2        # seconds each frame is held statically (long enough to read)
-FADE = 0.45       # seconds of crossfade between frames
+# ---------- ffmpeg chain ----------
+def _xfade_chain(items, width: int, fps: int):
+    """items: list of (png_path, hold_seconds, fade_in_from_previous_seconds).
 
+    Each clip's duration covers its hold + the fade overlap at both ends, so
+    visible hold equals the requested `hold`. First and last clips have no
+    leading / trailing fade respectively.
+    """
+    n = len(items)
+    durations = []
+    for i, (_, hold, fi) in enumerate(items):
+        fade_in = fi if i > 0 else 0.0
+        fade_out = items[i + 1][2] if i + 1 < n else 0.0
+        durations.append(hold + fade_in + fade_out)
 
-def _xfade_chain(inputs, width: int, fps: int):
-    """Return (ffmpeg input args, filter_complex string, final stream label)."""
-    n = len(inputs)
-    clip_dur = HOLD + FADE
     ff_in = []
-    for f in inputs:
-        ff_in += ["-loop", "1", "-t", f"{clip_dur:.3f}", "-i", str(f)]
+    for (path, _, _), dur in zip(items, durations):
+        ff_in += ["-loop", "1", "-t", f"{dur:.3f}", "-i", str(path)]
+
     norm = [
         f"[{i}:v]scale={width}:-1:flags=lanczos,format=yuv420p,fps={fps},settb=AVTB[v{i}]"
         for i in range(n)
     ]
-    chain, cur, cum = [], "v0", clip_dur
+    chain = []
+    current, cum_dur = "v0", durations[0]
     for i in range(1, n):
-        off = cum - FADE
-        nxt = f"x{i}"
+        fade = items[i][2]
+        offset = cum_dur - fade
+        label = f"x{i}"
         chain.append(
-            f"[{cur}][v{i}]xfade=transition=fade:duration={FADE:.3f}:offset={off:.3f}[{nxt}]"
+            f"[{current}][v{i}]xfade=transition=fade:duration={fade:.3f}:offset={offset:.3f}[{label}]"
         )
-        cur = nxt
-        cum += clip_dur - FADE
-    return ff_in, ";".join(norm + chain), cur
+        current = label
+        cum_dur += durations[i] - fade
+
+    return ff_in, ";".join(norm + chain), current
 
 
 def build_mp4(labeled_dir: Path, out: Path) -> None:
-    """Crossfade-chain labeled PNGs into a smoothly looping MP4 (h.264).
+    pngs = {p.stem.replace("labeled-", ""): p for p in labeled_dir.glob("labeled-*.png")}
+    items = [(pngs[f.slug], f.hold, f.fade_in) for f in FRAMES]
+    # Append the first frame again at the end so the loop restart is seamless.
+    items.append((pngs[FRAMES[0].slug], FRAMES[0].hold, DEFAULT_FADE))
 
-    Each frame is held HOLD seconds, then crossfades over FADE seconds into the
-    next. After the last frame, we crossfade back into frame 1 so the loop
-    restart is seamless.
-    """
-    pngs = sorted(labeled_dir.glob("labeled-*.png"))
-    if not pngs:
-        raise SystemExit("No labeled frames to assemble.")
-    inputs = pngs + [pngs[0]]   # loopback frame for smooth restart
-    ff_in, filter_str, final = _xfade_chain(inputs, MP4_WIDTH, MP4_FPS)
+    ff_in, filter_str, final = _xfade_chain(items, MP4_WIDTH, MP4_FPS)
     subprocess.run([
         "ffmpeg", "-y", "-loglevel", "error", *ff_in,
         "-filter_complex", filter_str,
@@ -184,10 +293,8 @@ def build_mp4(labeled_dir: Path, out: Path) -> None:
 
 def build_gif(mp4: Path, out: Path) -> None:
     """Quantize the MP4 to a looping GIF (fallback artifact for surfaces that
-    refuse video). Uses bayer:5 positional dither so identical "hold" frames
-    quantize identically and diff_mode=rectangle can dedup them — sierra2_4a
-    is prettier but its error-diffusion state shifts every frame and defeats
-    the dedup, ballooning file size."""
+    refuse video). bayer:5 is purely positional dither so identical hold frames
+    quantize identically and diff_mode=rectangle can dedup them."""
     palette = out.with_name(out.stem + "-palette.png")
     subprocess.run([
         "ffmpeg", "-y", "-loglevel", "error",
@@ -213,13 +320,12 @@ def main() -> None:
         shutil.rmtree(WORK)
     WORK.mkdir(parents=True)
 
-    for i, (slug, caption, setup) in enumerate(FRAMES, 1):
+    for i, fr in enumerate(FRAMES, 1):
         step = f"{i:02d} / {len(FRAMES):02d}"
-        html = build_frame_html(slug, caption, step, setup)
-        # The caption is now baked into the HTML, so the shot itself is the "labeled" image.
-        labeled = WORK / f"labeled-{slug}.png"
+        html = build_frame_html(fr, step)
+        labeled = WORK / f"labeled-{fr.slug}.png"
         shoot(html, labeled)
-        print(f"  ✓ {slug}: {labeled.stat().st_size//1024} KB")
+        print(f"  ✓ {fr.slug}: {labeled.stat().st_size//1024} KB")
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     build_mp4(WORK, OUT_MP4)
